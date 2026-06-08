@@ -23,6 +23,9 @@ function makeConfig(overrides?: Partial<Configuration>): Configuration {
     service: 'test',
     clientToken: 'pub-test',
     applicationId: 'app-1',
+    sessionSampleRate: 100,
+    sessionReplaySampleRate: 100,
+    profilingSampleRate: 0,
     telemetrySampleRate: 0,
     defaultPrivacyLevel: 'mask',
     allowedWebViewHosts: [],
@@ -88,6 +91,20 @@ describe('ReplayCollection', () => {
 
       sendRecord(eventManager, { type: 3, timestamp: 100 });
       vi.advanceTimersByTime(10_000);
+      expect(captured).toHaveLength(0);
+    });
+  });
+
+  describe('session replay sampling', () => {
+    it('uses the parent-corrected replay rate for the session ID', () => {
+      const captured = captureReplayEvents(eventManager);
+      const highHashSessionId = '5321b54a-d6ec-4b24-996d-dd70c617e09a';
+      const config = makeConfig({ sessionSampleRate: 50, sessionReplaySampleRate: 100 });
+      new ReplayCollection(eventManager, config, makeSessionManager(highHashSessionId));
+
+      sendRecord(eventManager, { type: 3, timestamp: 100 });
+      vi.advanceTimersByTime(5_000);
+
       expect(captured).toHaveLength(0);
     });
   });

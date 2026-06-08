@@ -9,6 +9,8 @@ import { BatchConsumer } from './BatchConsumer';
 import type { BatchConsumerConfig } from './BatchConsumer';
 import { BatchProducer } from './BatchProducer';
 import { ProfileBatchConsumer, ProfileBatchProducer } from './profiling';
+import { ReplayBatchConsumer } from './replay/ReplayBatchConsumer';
+import { ReplayBatchProducer } from './replay/ReplayBatchProducer';
 import { StandardBatchConsumer } from './standard/StandardBatchConsumer';
 import { StandardBatchProducer } from './standard/StandardBatchProducer';
 import type { StandardBatchProducerConfig } from './standard/StandardBatchProducer';
@@ -111,6 +113,12 @@ export class BatchManager {
     const intakeUrl = computeIntakeUrlForTrack(config.site, trackType, { proxy: config.proxy });
 
     const consumerConfig: BatchConsumerConfig = { trackPath, intakeUrl, clientToken };
+
+    if (trackType === EventTrack.REPLAY) {
+      const producer = await ReplayBatchProducer.create({ trackPath });
+      const consumer = new ReplayBatchConsumer(consumerConfig);
+      return { producer, consumer };
+    }
 
     if (trackType === EventTrack.PROFILE) {
       const producer = await ProfileBatchProducer.create({ trackPath });

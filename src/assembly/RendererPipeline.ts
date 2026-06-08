@@ -132,6 +132,7 @@ export class RendererPipeline {
       eventType: data.type,
       startTime: data.date as TimeStamp,
       source: EventSource.RENDERER,
+      rendererViewId: (data as { view?: { id?: string } }).view?.id,
     });
 
     if (hookResult === DISCARDED) {

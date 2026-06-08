@@ -7,9 +7,9 @@ import type { InitConfiguration } from './config';
 import { buildConfiguration } from './config';
 import type { ErrorOptions, FailureReason, FeatureOperationOptions } from './domain/rum';
 import { RumCollection } from './domain/rum';
-import { ReplayCollection } from './domain/replay';
+import { ReplayCollection, registerReplayContext } from './domain/replay';
 import { SessionManager } from './domain/session';
-import { callMonitored, startTelemetry } from './domain/telemetry';
+import { callMonitored, monitor, startTelemetry } from './domain/telemetry';
 import { SpanProcessor } from './domain/tracing/SpanProcessor';
 import { Tracing } from './domain/tracing/Tracing';
 import { ProfilingCollection } from './domain/profiling';
@@ -59,6 +59,7 @@ export async function init(configuration: InitConfiguration): Promise<boolean> {
 
   new ProfilingCollection(eventManager, sessionManager, config, hooks);
   segmentCollection = new ReplayCollection(eventManager, config, sessionManager);
+  registerReplayContext(hooks, (viewId) => segmentCollection?.getViewReplayStats(viewId));
 
   if (tracing.enabled) {
     new SpanProcessor(eventManager, hooks, config);
@@ -69,21 +70,24 @@ export async function init(configuration: InitConfiguration): Promise<boolean> {
   rumApi = rum.getApi();
   setDurationVitalApi(rumApi);
 
-  // Flush the final in-flight replay segment (and other transports) before
-  // the process exits. `preventDefault` defers the quit so the async flush
-  // can complete; the 5-second fallback ensures we never hang. Using `once`
-  // so the handler removes itself — when _flushTransport calls app.quit()
-  // the second quit propagates without re-entering here.
-  app.once('before-quit', (event: Electron.Event) => {
-    event.preventDefault();
-    const fallback = setTimeout(() => app.quit(), 5000);
-    void _flushTransport().finally(() => {
-      clearTimeout(fallback);
-      app.quit();
-    });
-  });
+  setupBeforeQuitHandler();
 
   return true;
+}
+
+/** Flushes pending SDK data before allowing Electron to quit. */
+function setupBeforeQuitHandler(): void {
+  app.once(
+    'before-quit',
+    monitor((event: Electron.Event) => {
+      event.preventDefault();
+      const fallback = setTimeout(() => app.quit(), 5000);
+      void _flushTransport().finally(() => {
+        clearTimeout(fallback);
+        app.quit();
+      });
+    })
+  );
 }
 
 /**

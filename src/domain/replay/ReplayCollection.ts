@@ -1,4 +1,4 @@
-import { ONE_SECOND } from '@datadog/browser-core';
+import { ONE_SECOND } from '@datadog/js-core/time';
 import { EventFormat, EventKind, EventTrack, LifecycleKind } from '../../event';
 import type { EventManager, RawReplayEvent, LifecycleEvent } from '../../event';
 import type { Configuration } from '../../config';

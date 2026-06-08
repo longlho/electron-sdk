@@ -66,7 +66,7 @@ describe('Transport', () => {
 
       const tracks = mockBatchCreate.mock.calls.map(([, options]) => (options as { trackType: EventTrack }).trackType);
       expect(tracks).not.toContain(EventTrack.PROFILE);
-      expect(tracks).toEqual([EventTrack.RUM, EventTrack.SPANS]);
+      expect(tracks).toEqual([EventTrack.RUM, EventTrack.SPANS, EventTrack.REPLAY]);
     });
   });
 
