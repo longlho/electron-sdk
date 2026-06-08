@@ -105,6 +105,10 @@ export class RendererPipeline {
         break;
       }
       case 'record':
+        if (!bridgeEvent.view) {
+          addTelemetryError(new Error('Replay record missing view'));
+          break;
+        }
         this.eventManager.notify({
           kind: EventKind.RAW,
           source: EventSource.RENDERER,
