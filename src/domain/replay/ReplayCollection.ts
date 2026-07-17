@@ -2,10 +2,12 @@ import { ONE_SECOND } from '@datadog/js-core/time';
 import { EventFormat, EventKind, EventTrack, LifecycleKind } from '../../event';
 import type { EventManager, RawReplayEvent, LifecycleEvent } from '../../event';
 import type { Configuration } from '../../config';
+import type { FormatHooks } from '../../assembly';
 import { correctedChildSampleRate, isSessionSampled } from '../../tools/Sampler';
 import { StreamingDeflate } from '../../tools/StreamingDeflate';
 import type { SessionManager } from '../session';
 import { monitor, setTimeout } from '../telemetry';
+import { registerReplayContext } from './replayContext';
 import { CreationReason, Segment, type BrowserRecord, type SegmentContext } from './Segment';
 
 // Matches the browser SDK flush cadence.
@@ -51,8 +53,13 @@ export class ReplayCollection {
   constructor(
     private readonly eventManager: EventManager,
     private readonly config: Configuration,
-    private readonly sessionManager: SessionManager
+    private readonly sessionManager: SessionManager,
+    hooks: FormatHooks
   ) {
+    // Enrich renderer view events with this session's replay stats. Registered here (rather than by the
+    // caller) so all replay-specific assembly logic lives with the collection, mirroring ProfilingCollection.
+    registerReplayContext(hooks, (viewId) => this.getViewReplayStats(viewId));
+
     this.eventManager.registerHandler<RawReplayEvent>({
       canHandle: (event): event is RawReplayEvent =>
         event.kind === EventKind.RAW && 'format' in event && event.format === EventFormat.REPLAY,

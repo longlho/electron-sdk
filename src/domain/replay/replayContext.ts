@@ -23,7 +23,7 @@ export function registerReplayContext(
     }
 
     return {
-      session: { has_replay: true } as object,
+      session: { has_replay: true },
       _dd: {
         replay_stats: {
           segments_count: stats.segments_count,

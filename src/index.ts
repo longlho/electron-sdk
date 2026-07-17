@@ -7,7 +7,7 @@ import type { InitConfiguration } from './config';
 import { buildConfiguration } from './config';
 import type { ErrorOptions, FailureReason, FeatureOperationOptions } from './domain/rum';
 import { RumCollection } from './domain/rum';
-import { ReplayCollection, registerReplayContext } from './domain/replay';
+import { ReplayCollection } from './domain/replay';
 import { SessionManager } from './domain/session';
 import { callMonitored, monitor, startTelemetry } from './domain/telemetry';
 import { SpanProcessor } from './domain/tracing/SpanProcessor';
@@ -23,7 +23,7 @@ let rumApi: ReturnType<RumCollection['getApi']> | undefined;
 let tracing: Tracing | undefined;
 let userContext: UserContext | undefined;
 let accountContext: AccountContext | undefined;
-let segmentCollection: ReplayCollection | undefined;
+let replayCollection: ReplayCollection | undefined;
 
 /**
  * Internal SDK context
@@ -58,8 +58,7 @@ export async function init(configuration: InitConfiguration): Promise<boolean> {
   new RendererPipeline(eventManager, hooks, config);
 
   new ProfilingCollection(eventManager, sessionManager, config, hooks);
-  segmentCollection = new ReplayCollection(eventManager, config, sessionManager);
-  registerReplayContext(hooks, (viewId) => segmentCollection?.getViewReplayStats(viewId));
+  replayCollection = new ReplayCollection(eventManager, config, sessionManager, hooks);
 
   if (tracing.enabled) {
     new SpanProcessor(eventManager, hooks, config);
@@ -77,17 +76,26 @@ export async function init(configuration: InitConfiguration): Promise<boolean> {
 
 /** Flushes pending SDK data before allowing Electron to quit. */
 function setupBeforeQuitHandler(): void {
-  app.once(
-    'before-quit',
-    monitor((event: Electron.Event) => {
-      event.preventDefault();
-      const fallback = setTimeout(() => app.quit(), 5000);
-      void _flushTransport().finally(() => {
-        clearTimeout(fallback);
+  const onBeforeQuit = monitor((event: Electron.Event) => {
+    event.preventDefault();
+
+    // Guard against re-entrancy: a second quit (e.g. user hits Cmd+Q again or the
+    // OS sends another quit signal) must not race the fallback timer, and the
+    // fallback firing before the flush settles must not trigger a duplicate quit.
+    let done = false;
+    const doQuit = () => {
+      if (!done) {
+        done = true;
+        app.removeListener('before-quit', onBeforeQuit);
         app.quit();
-      });
-    })
-  );
+      }
+    };
+
+    setTimeout(doQuit, 5000);
+    void _flushTransport().finally(doQuit);
+  });
+
+  app.on('before-quit', onBeforeQuit);
 }
 
 /**
@@ -279,7 +287,7 @@ export function failFeatureOperation(
  */
 export async function _flushTransport(): Promise<void> {
   await tracing?.flush();
-  await segmentCollection?.stop();
+  await replayCollection?.stop();
   await transport?.flush();
 }
 
