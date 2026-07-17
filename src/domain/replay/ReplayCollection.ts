@@ -5,8 +5,7 @@ import type { Configuration } from '../../config';
 import { correctedChildSampleRate, isSessionSampled } from '../../tools/Sampler';
 import { StreamingDeflate } from '../../tools/StreamingDeflate';
 import type { SessionManager } from '../session';
-import { monitor } from '../telemetry';
-import { setTimeout } from '../telemetry/timer';
+import { monitor, setTimeout } from '../telemetry';
 import { CreationReason, Segment, type BrowserRecord, type SegmentContext } from './Segment';
 
 // Matches the browser SDK flush cadence.
@@ -27,7 +26,7 @@ const SEGMENT_BYTES_LIMIT = 10 * 1024 * 1024;
  *
  * Segments are flushed when:
  * - Duration limit (5s) is reached
- * - Estimated byte size limit (60KB) is exceeded
+ * - Estimated byte size limit (10MB) is exceeded
  * - The renderer view changes (different view.id)
  * - The session expires or renews
  */

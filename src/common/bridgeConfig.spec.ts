@@ -10,7 +10,7 @@ describe('bridgeConfig', () => {
     expect(getBridgeConfig()).toEqual({
       defaultPrivacyLevel: 'mask',
       allowedWebViewHosts: [],
-      capabilities: ['profiles'],
+      capabilities: ['profiles', 'records'],
     });
   });
 

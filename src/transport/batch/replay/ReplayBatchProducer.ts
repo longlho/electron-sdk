@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { BatchProducer } from '../BatchProducer';
 import type { BatchProducerConfig } from '../BatchProducer';
-import type { ReplaySegmentPayload } from '../../../domain/replay';
+import type { ServerReplayEvent } from '../../../event';
 
 /**
  * Concrete {@link BatchProducer} for session replay segments.
@@ -26,8 +26,8 @@ export class ReplayBatchProducer extends BatchProducer {
     return producer;
   }
 
-  protected async writeData(data: unknown): Promise<void> {
-    const { metadata, rawBytesCount, compressed } = data as ReplaySegmentPayload;
+  protected async writeData(event: ServerReplayEvent): Promise<void> {
+    const { metadata, rawBytesCount, compressed } = event.data;
 
     await this.ensureTrackDirectoryExists();
 

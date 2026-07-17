@@ -22,7 +22,9 @@ function getHolder(): BridgeConfigHolder {
     // Advertise the SDK's supported capabilities by default to signal support. init() replaces this with
     // the config-derived value; that narrowing is only an optimization to save renderer work, since the
     // Electron SDK config (not the advertised capability) governs what is actually sent to Datadog.
-    holder = { value: { defaultPrivacyLevel: 'mask', allowedWebViewHosts: [], capabilities: ['profiles'] } };
+    holder = {
+      value: { defaultPrivacyLevel: 'mask', allowedWebViewHosts: [], capabilities: ['profiles', 'records'] },
+    };
     store[BRIDGE_CONFIG] = holder;
   }
   return holder;

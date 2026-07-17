@@ -31,7 +31,7 @@ describe('registerBridgeConfigResponder', () => {
     expect(event.returnValue).toEqual({
       defaultPrivacyLevel: 'mask',
       allowedWebViewHosts: [],
-      capabilities: ['profiles'],
+      capabilities: ['profiles', 'records'],
     });
   });
 

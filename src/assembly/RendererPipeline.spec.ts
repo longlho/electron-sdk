@@ -115,6 +115,7 @@ describe('RendererPipeline', () => {
       defaultPrivacyLevel: 'allow',
       allowedWebViewHosts: ['example.com'],
       profilingSampleRate: 0,
+      sessionReplaySampleRate: 0,
     });
     mockSetBridgeConfig.mockClear();
     new RendererPipeline(eventManager, hooks, config);
@@ -127,14 +128,21 @@ describe('RendererPipeline', () => {
 
   describe('capabilities', () => {
     it('advertises the profiles capability when profilingSampleRate > 0', () => {
-      const config = createTestConfiguration({ profilingSampleRate: 100 });
+      const config = createTestConfiguration({ profilingSampleRate: 100, sessionReplaySampleRate: 0 });
       mockSetBridgeConfig.mockClear();
       new RendererPipeline(new EventManager(), createFormatHooks(), config);
       expect((mockSetBridgeConfig.mock.calls[0]?.[0] as BridgeOptions).capabilities).toEqual(['profiles']);
     });
 
-    it('advertises no capabilities when profilingSampleRate is 0', () => {
-      const config = createTestConfiguration({ profilingSampleRate: 0 });
+    it('advertises replay and profiling capabilities when both are enabled', () => {
+      const config = createTestConfiguration({ profilingSampleRate: 100, sessionReplaySampleRate: 100 });
+      mockSetBridgeConfig.mockClear();
+      new RendererPipeline(new EventManager(), createFormatHooks(), config);
+      expect((mockSetBridgeConfig.mock.calls[0]?.[0] as BridgeOptions).capabilities).toEqual(['profiles', 'records']);
+    });
+
+    it('advertises no capabilities when profiling and replay are disabled', () => {
+      const config = createTestConfiguration({ profilingSampleRate: 0, sessionReplaySampleRate: 0 });
       mockSetBridgeConfig.mockClear();
       new RendererPipeline(new EventManager(), createFormatHooks(), config);
       expect((mockSetBridgeConfig.mock.calls[0]?.[0] as BridgeOptions).capabilities).toEqual([]);

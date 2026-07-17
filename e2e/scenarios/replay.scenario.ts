@@ -4,7 +4,7 @@ import { test, expect } from '../lib/helpers';
  * Session replay E2E scenarios.
  *
  * These tests verify that:
- * 1. The dd-trace preload exposes "records" capability so the browser RUM SDK
+ * 1. The Electron SDK preload exposes "records" capability so the browser RUM SDK
  *    starts emitting BrowserRecord events through the bridge.
  * 2. ReplayCollection buffers those records and emits a compressed segment.
  * 3. ReplayBatchConsumer uploads the segment as multipart/form-data and the
@@ -18,8 +18,9 @@ test.describe('session replay', () => {
     intake,
   }) => {
     // Open a bridge window — the browser RUM SDK initialises and, because the
-    // dd-trace preload advertises "records" capability, starts recording rrweb events.
+    // Electron SDK preload advertises "records" capability, starts recording rrweb events.
     const bridgeWindow = await mainPage.openBridgeFileWindow(electronApp);
+    expect(await bridgeWindow.getBridgeCapabilities()).toContain('records');
 
     // Give the renderer time to produce at least one full-snapshot record.
     await bridgeWindow.page.waitForTimeout(2000);
@@ -45,6 +46,7 @@ test.describe('session replay', () => {
   }) => {
     // Open bridge window and wait for recording to produce data
     const bridgeWindow = await mainPage.openBridgeFileWindow(electronApp);
+    expect(await bridgeWindow.getBridgeCapabilities()).toContain('records');
     await bridgeWindow.page.waitForTimeout(2000);
 
     // First flush — sends the replay segment to the intake
