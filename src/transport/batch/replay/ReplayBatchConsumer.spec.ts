@@ -30,7 +30,7 @@ describe('ReplayBatchConsumer — request construction', () => {
     fsMocks.reset();
     vi.mocked(getUserAgent).mockReset().mockReturnValue(TEST_USER_AGENT);
     consumer = new ReplayBatchConsumer(config);
-    global.fetch = vi.fn().mockResolvedValue({ ok: true } as Response);
+    global.fetch = vi.fn().mockResolvedValue({ ok: true });
     fsMocks.access.mockResolvedValue(undefined);
     fsMocks.unlink.mockResolvedValue(undefined);
   });

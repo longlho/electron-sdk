@@ -8,6 +8,7 @@ datadogRum.init({
   trackResources: true,
   trackLongTasks: true,
   trackUserInteractions: true,
+  sessionReplaySampleRate: 100,
 });
 
 document.getElementById('status')!.textContent = 'bridge-ready';

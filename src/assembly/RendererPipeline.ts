@@ -109,6 +109,12 @@ export class RendererPipeline {
           addTelemetryError(new Error('Replay record missing view'));
           break;
         }
+        // Validate the renderer-supplied shape early: a malformed record would otherwise fail
+        // later at segment serialization/upload with no useful context.
+        if (!isIndexableObject(bridgeEvent.event)) {
+          addTelemetryError(new Error('Received malformed replay record'));
+          break;
+        }
         this.eventManager.notify({
           kind: EventKind.RAW,
           source: EventSource.RENDERER,
