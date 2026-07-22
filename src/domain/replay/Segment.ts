@@ -24,8 +24,12 @@ export const CreationReason = {
 
 export type CreationReason = (typeof CreationReason)[keyof typeof CreationReason];
 
-/** Record type constants from the browser SDK's rrweb-based recording. */
+/** Record type constants from the browser SDK's rrweb-based recording (RecordType). */
 const FULL_SNAPSHOT_TYPE = 2;
+// Browser SDK 7.x change-format: the initial snapshot of a view arrives as a Change record
+// (type 12) rather than a legacy full-snapshot record. It only counts as the full snapshot on
+// the first segment of the view (index_in_view === 0).
+const CHANGE_TYPE = 12;
 
 export interface SegmentMetadata {
   application: { id: string };
@@ -104,7 +108,9 @@ export class Segment {
     this.metadata.start = Math.min(this.metadata.start, record.timestamp);
     this.metadata.end = Math.max(this.metadata.end, record.timestamp);
     this.metadata.records_count += 1;
-    if (record.type === FULL_SNAPSHOT_TYPE) {
+    // Mirror the browser SDK's segment.js: a full snapshot is a legacy type-2 record, or — in the
+    // 7.x change format — a Change record (type 12) on the view's first segment (index_in_view 0).
+    if (record.type === FULL_SNAPSHOT_TYPE || (record.type === CHANGE_TYPE && this.metadata.index_in_view === 0)) {
       this.metadata.has_full_snapshot = true;
     }
   }

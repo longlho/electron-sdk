@@ -47,6 +47,18 @@ describe('Segment', () => {
       expect(segment.flush().metadata.has_full_snapshot).toBe(true);
     });
 
+    it('sets has_full_snapshot for a change-format record (type 12) on the first segment of a view', () => {
+      const segment = new Segment(CONTEXT, CreationReason.INIT, 0);
+      segment.addRecord(makeRecord({ type: 12 }));
+      expect(segment.flush().metadata.has_full_snapshot).toBe(true);
+    });
+
+    it('does not treat a change-format record (type 12) as a full snapshot on later segments', () => {
+      const segment = new Segment(CONTEXT, CreationReason.VIEW_CHANGE, 2);
+      segment.addRecord(makeRecord({ type: 12 }));
+      expect(segment.flush().metadata.has_full_snapshot).toBe(false);
+    });
+
     it('accumulates estimated size proportional to record count', () => {
       const segment = new Segment(CONTEXT, CreationReason.INIT, 0);
       expect(segment.estimatedSize).toBe(0);
