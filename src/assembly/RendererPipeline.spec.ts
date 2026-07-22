@@ -425,6 +425,19 @@ describe('RendererPipeline', () => {
     });
 
     it.each([
+      ['empty view id', { id: '' }],
+      ['missing view id', {}],
+    ])('reports telemetry error and drops records with an %s', (_label, view) => {
+      const spy = vi.spyOn(eventManager, 'notify');
+
+      simulateIpcMessage(JSON.stringify({ eventType: 'record', event: { type: 2, timestamp: 123 }, view }));
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(mockAddError).toHaveBeenCalledOnce();
+      expect((mockAddError.mock.calls[0][0] as Error).message).toContain('missing view');
+    });
+
+    it.each([
       ['missing timestamp', { type: 2 }],
       ['non-numeric timestamp', { type: 2, timestamp: 'now' }],
       ['null timestamp', { type: 2, timestamp: null }],

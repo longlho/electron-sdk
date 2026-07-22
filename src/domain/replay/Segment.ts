@@ -69,6 +69,11 @@ export interface BrowserRecord {
   [key: string]: unknown;
 }
 
+/** UTF-8 byte size a record contributes to a segment (matches Segment's own accounting). */
+export function byteSizeOf(record: BrowserRecord): number {
+  return Buffer.byteLength(JSON.stringify(record), 'utf8');
+}
+
 export class Segment {
   private records: BrowserRecord[] = [];
   private metadata: SegmentMetadata;
@@ -99,11 +104,12 @@ export class Segment {
     return this._estimatedSize;
   }
 
-  addRecord(record: BrowserRecord): void {
+  addRecord(record: BrowserRecord, recordByteSize: number = byteSizeOf(record)): void {
     // Measure UTF-8 byte length, not UTF-16 code-unit count: SEGMENT_BYTES_LIMIT is a byte
     // cap and flush() reports rawBytesCount via Buffer.byteLength. Using String#length would
     // undercount non-ASCII DOM text (CJK/emoji), letting a segment exceed the intended cap.
-    this._estimatedSize += Buffer.byteLength(JSON.stringify(record), 'utf8');
+    // The caller may pass a precomputed size (from byteSizeOf) to avoid stringifying twice.
+    this._estimatedSize += recordByteSize;
     this.records.push(record);
     this.metadata.start = Math.min(this.metadata.start, record.timestamp);
     this.metadata.end = Math.max(this.metadata.end, record.timestamp);

@@ -8,7 +8,7 @@ import { StreamingDeflate } from '../../tools/StreamingDeflate';
 import type { SessionManager } from '../session';
 import { monitor, setTimeout } from '../telemetry';
 import { registerReplayContext } from './replayContext';
-import { CreationReason, Segment, type BrowserRecord, type SegmentContext } from './Segment';
+import { byteSizeOf, CreationReason, Segment, type BrowserRecord, type SegmentContext } from './Segment';
 
 // Matches the browser SDK flush cadence.
 const SEGMENT_DURATION_LIMIT = 5 * ONE_SECOND;
@@ -58,7 +58,11 @@ export class ReplayCollection {
   ) {
     // Enrich renderer view events with this session's replay stats. Registered here (rather than by the
     // caller) so all replay-specific assembly logic lives with the collection, mirroring ProfilingCollection.
-    registerReplayContext(hooks, (viewId) => this.getViewReplayStats(viewId));
+    registerReplayContext(
+      hooks,
+      (viewId) => this.getViewReplayStats(viewId),
+      () => this.isReplayActive()
+    );
 
     this.eventManager.registerHandler<RawReplayEvent>({
       canHandle: (event): event is RawReplayEvent =>
@@ -93,6 +97,12 @@ export class ReplayCollection {
     );
   }
 
+  /** Whether replay is being recorded for the current session (sampling decision, not flush state). */
+  private isReplayActive(): boolean {
+    const session = this.sessionManager.getSession();
+    return session.status === 'active' && this.isReplaySampled(session.id);
+  }
+
   private onRecord(record: BrowserRecord, viewId: string | undefined): void {
     // Detect view change
     if (viewId && this.currentViewId && viewId !== this.currentViewId) {
@@ -103,23 +113,42 @@ export class ReplayCollection {
       this.currentViewId = viewId;
     }
 
-    if (!this.segment) {
-      const context = this.getSegmentContext();
-      if (!context) {
+    let segment = this.ensureSegment();
+    if (!segment) {
+      return;
+    }
+
+    // Split *before* appending so the segment written to disk never exceeds the cap by a whole
+    // record (a full snapshot can be large). A single record bigger than the cap is unavoidable —
+    // it still gets its own segment. Flushing here starts a fresh segment for this record.
+    const recordByteSize = byteSizeOf(record);
+    if (!segment.isEmpty && segment.estimatedSize + recordByteSize > SEGMENT_BYTES_LIMIT) {
+      this.flush(CreationReason.SEGMENT_BYTES_LIMIT);
+      segment = this.ensureSegment();
+      if (!segment) {
         return;
       }
-
-      const indexInView = this.getNextSegmentIndex(context.view.id);
-      this.segment = new Segment(context, this.nextCreationReason, indexInView);
-      this.nextCreationReason = CreationReason.INIT;
-      this.scheduleFlush();
     }
 
-    this.segment.addRecord(record);
+    segment.addRecord(record, recordByteSize);
+  }
 
-    if (this.segment.estimatedSize > SEGMENT_BYTES_LIMIT) {
-      this.flush(CreationReason.SEGMENT_BYTES_LIMIT);
+  /** Returns the current segment, creating one if needed. Null when there is no valid context. */
+  private ensureSegment(): Segment | null {
+    if (this.segment) {
+      return this.segment;
     }
+
+    const context = this.getSegmentContext();
+    if (!context) {
+      return null;
+    }
+
+    const indexInView = this.getNextSegmentIndex(context.view.id);
+    this.segment = new Segment(context, this.nextCreationReason, indexInView);
+    this.nextCreationReason = CreationReason.INIT;
+    this.scheduleFlush();
+    return this.segment;
   }
 
   private getSegmentContext(): SegmentContext | undefined {

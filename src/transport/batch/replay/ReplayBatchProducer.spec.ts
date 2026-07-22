@@ -8,9 +8,12 @@ import type { ReplaySegmentPayload, SegmentMetadata } from '../../../domain/repl
 import { EventKind, EventTrack, type ServerReplayEvent } from '../../../event';
 
 vi.mock('node:fs/promises');
-vi.mock('@datadog/browser-core', () => ({
+// The batch filename generator uses dateNow from @datadog/js-core/time (not browser-core). Mock that
+// module for a deterministic timestamp, preserving its other exports; replacing @datadog/browser-core
+// here would break transitive imports that pull real browser-core exports (e.g. performDraw) in.
+vi.mock('@datadog/js-core/time', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@datadog/js-core/time')>()),
   dateNow: vi.fn(() => 1234567890),
-  ONE_SECOND: 1000,
 }));
 
 const fsMocks = mockFs();

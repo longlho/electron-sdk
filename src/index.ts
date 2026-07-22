@@ -27,6 +27,10 @@ let replayCollection: ReplayCollection | undefined;
 // Shared across before-quit invocations so a second quit signal can't spawn a parallel flush
 // (which would return early while the first upload is still in flight and quit prematurely).
 let isQuitting = false;
+// The currently registered before-quit listener. Tracked so repeated init() calls replace it
+// instead of stacking handlers — stacked handlers share isQuitting, and a second one would
+// preventDefault() then return early without ever quitting, deadlocking shutdown.
+let onBeforeQuit: ((event: Electron.Event) => void) | undefined;
 
 /**
  * Internal SDK context
@@ -79,7 +83,14 @@ export async function init(configuration: InitConfiguration): Promise<boolean> {
 
 /** Flushes pending SDK data before allowing Electron to quit. */
 function setupBeforeQuitHandler(): void {
-  const onBeforeQuit = monitor((event: Electron.Event) => {
+  // Replace any handler from a previous init() so only one is ever registered.
+  if (onBeforeQuit) {
+    app.removeListener('before-quit', onBeforeQuit);
+  }
+
+  // Local const so the closure below always removes *this* handler (the module-level `let` isn't
+  // narrowed inside the closure, and could be reassigned by a later init()).
+  const handler = monitor((event: Electron.Event) => {
     event.preventDefault();
 
     // A second quit (user hits Cmd+Q again, or the OS sends another quit signal) while the first
@@ -96,7 +107,7 @@ function setupBeforeQuitHandler(): void {
     const doQuit = () => {
       if (!done) {
         done = true;
-        app.removeListener('before-quit', onBeforeQuit);
+        app.removeListener('before-quit', handler);
         app.quit();
       }
     };
@@ -104,8 +115,9 @@ function setupBeforeQuitHandler(): void {
     setTimeout(doQuit, 5000);
     void _flushTransport().finally(doQuit);
   });
+  onBeforeQuit = handler;
 
-  app.on('before-quit', onBeforeQuit);
+  app.on('before-quit', handler);
 }
 
 /**
@@ -296,8 +308,12 @@ export function failFeatureOperation(
  * Internal API to flush all pending batches to the intake
  */
 export async function _flushTransport(): Promise<void> {
-  await tracing?.flush();
+  // Stop replay first: it must compress and hand the final segment to the transport before the
+  // dd-trace flush, whose exporter can be slow or never call back. If tracing went first and hung,
+  // the before-quit fallback timer could fire before the last replay segment was even produced —
+  // losing exactly what this shutdown path exists to preserve.
   await replayCollection?.stop();
+  await tracing?.flush();
   await transport?.flush();
 }
 

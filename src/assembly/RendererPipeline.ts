@@ -99,7 +99,9 @@ export class RendererPipeline {
         break;
       }
       case 'record':
-        if (!bridgeEvent.view) {
+        // Require a non-empty view.id, not just a view object: ReplayCollection keys segments by
+        // view id, so an undefined/empty id would let the record pollute the current view's segment.
+        if (!bridgeEvent.view || !bridgeEvent.view.id) {
           addTelemetryError(new Error('Replay record missing view'));
           break;
         }

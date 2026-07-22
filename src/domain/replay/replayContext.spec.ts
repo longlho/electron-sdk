@@ -6,13 +6,15 @@ import type { ViewReplayStats } from './ReplayCollection';
 import { registerReplayContext } from './replayContext';
 
 const STATS: ViewReplayStats = { segments_count: 3, segments_total_raw_size: 1024 };
+const ACTIVE = () => true;
+const INACTIVE = () => false;
 
 describe('registerReplayContext', () => {
   describe('when to skip', () => {
     it('returns SKIPPED for main-process events', () => {
       const hooks = createFormatHooks();
       const getStats = vi.fn().mockReturnValue(STATS);
-      registerReplayContext(hooks, getStats);
+      registerReplayContext(hooks, getStats, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
@@ -29,7 +31,7 @@ describe('registerReplayContext', () => {
     it('returns SKIPPED for renderer non-view events', () => {
       const hooks = createFormatHooks();
       const getStats = vi.fn().mockReturnValue(STATS);
-      registerReplayContext(hooks, getStats);
+      registerReplayContext(hooks, getStats, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'error',
@@ -45,7 +47,7 @@ describe('registerReplayContext', () => {
     it('returns SKIPPED when rendererViewId is missing', () => {
       const hooks = createFormatHooks();
       const getStats = vi.fn().mockReturnValue(STATS);
-      registerReplayContext(hooks, getStats);
+      registerReplayContext(hooks, getStats, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
@@ -56,20 +58,23 @@ describe('registerReplayContext', () => {
       expect(getStats).not.toHaveBeenCalled();
       expect(result).toBeUndefined();
     });
+  });
 
-    it('clears has_replay and zeroes replay_stats when no replay stats exist for the view', () => {
+  describe('when replay is not active (session sampled out)', () => {
+    it('clears has_replay and zeroes replay_stats, regardless of any buffered stats', () => {
       const hooks = createFormatHooks();
-      registerReplayContext(hooks, () => undefined);
+      // Even if stats somehow exist, an inactive session must report no replay.
+      registerReplayContext(hooks, () => STATS, INACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
         startTime: 0 as TimeStamp,
         source: EventSource.RENDERER,
-        rendererViewId: 'view-no-stats',
+        rendererViewId: 'view-1',
       });
 
-      // The main process never sent a segment for this view, so the RUM view must not claim a
-      // replay exists — nor carry stale renderer-provided stats — even if the renderer stamped them.
+      // The session was not sampled for replay, so the RUM view must not claim a replay exists —
+      // nor carry stale renderer-provided stats — even if the renderer stamped them.
       expect((result as Record<string, unknown>)?.['session']).toMatchObject({ has_replay: false });
       expect((result as Record<string, unknown>)?.['_dd']).toMatchObject({
         replay_stats: { records_count: 0, segments_count: 0, segments_total_raw_size: 0 },
@@ -77,11 +82,11 @@ describe('registerReplayContext', () => {
     });
   });
 
-  describe('when replay stats exist for a renderer view event', () => {
+  describe('when replay is active for a renderer view event', () => {
     it('calls getViewReplayStats with the renderer view ID', () => {
       const hooks = createFormatHooks();
       const getStats = vi.fn().mockReturnValue(STATS);
-      registerReplayContext(hooks, getStats);
+      registerReplayContext(hooks, getStats, ACTIVE);
 
       hooks.triggerRum({
         eventType: 'view',
@@ -95,7 +100,7 @@ describe('registerReplayContext', () => {
 
     it('returns session.has_replay: true', () => {
       const hooks = createFormatHooks();
-      registerReplayContext(hooks, () => STATS);
+      registerReplayContext(hooks, () => STATS, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
@@ -109,7 +114,7 @@ describe('registerReplayContext', () => {
 
     it('returns _dd.replay_stats with segments_count and segments_total_raw_size', () => {
       const hooks = createFormatHooks();
-      registerReplayContext(hooks, () => STATS);
+      registerReplayContext(hooks, () => STATS, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
@@ -125,13 +130,32 @@ describe('registerReplayContext', () => {
         },
       });
     });
+
+    it('reports has_replay: true with zeroed segment counts before the first segment is flushed', () => {
+      const hooks = createFormatHooks();
+      // Active session, but no segment flushed yet for this view (short view / route change).
+      registerReplayContext(hooks, () => undefined, ACTIVE);
+
+      const result = hooks.triggerRum({
+        eventType: 'view',
+        startTime: 0 as TimeStamp,
+        source: EventSource.RENDERER,
+        rendererViewId: 'view-buffered',
+      });
+
+      // A segment is buffered and will be uploaded, so the view must still claim a replay exists.
+      expect((result as Record<string, unknown>)?.['session']).toMatchObject({ has_replay: true });
+      expect((result as Record<string, unknown>)?.['_dd']).toMatchObject({
+        replay_stats: { segments_count: 0, segments_total_raw_size: 0 },
+      });
+    });
   });
 
   describe('integration with other hooks', () => {
     it('combines replay attributes with other registered hook results', () => {
       const hooks = createFormatHooks();
       hooks.registerRum(() => ({ session: { id: 'main-session-id' } }));
-      registerReplayContext(hooks, () => STATS);
+      registerReplayContext(hooks, () => STATS, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
@@ -148,7 +172,7 @@ describe('registerReplayContext', () => {
     it('does not interfere with non-replay hooks for main-process events', () => {
       const hooks = createFormatHooks();
       hooks.registerRum(() => ({ session: { id: 'main-session-id' } }));
-      registerReplayContext(hooks, () => STATS);
+      registerReplayContext(hooks, () => STATS, ACTIVE);
 
       const result = hooks.triggerRum({
         eventType: 'view',
