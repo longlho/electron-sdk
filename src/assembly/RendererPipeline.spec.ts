@@ -423,6 +423,21 @@ describe('RendererPipeline', () => {
       expect(mockAddError).toHaveBeenCalledOnce();
       expect((mockAddError.mock.calls[0][0] as Error).message).toContain('malformed replay record');
     });
+
+    it.each([
+      ['missing timestamp', { type: 2 }],
+      ['non-numeric timestamp', { type: 2, timestamp: 'now' }],
+      ['null timestamp', { type: 2, timestamp: null }],
+      ['missing type', { timestamp: 123 }],
+    ])('reports telemetry error and drops records with %s', (_label, event) => {
+      const spy = vi.spyOn(eventManager, 'notify');
+
+      simulateIpcMessage(JSON.stringify({ eventType: 'record', event, view: { id: 'view-1' } }));
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(mockAddError).toHaveBeenCalledOnce();
+      expect((mockAddError.mock.calls[0][0] as Error).message).toContain('invalid timestamp or type');
+    });
   });
 
   describe('unimplemented event types', () => {

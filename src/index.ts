@@ -24,6 +24,9 @@ let tracing: Tracing | undefined;
 let userContext: UserContext | undefined;
 let accountContext: AccountContext | undefined;
 let replayCollection: ReplayCollection | undefined;
+// Shared across before-quit invocations so a second quit signal can't spawn a parallel flush
+// (which would return early while the first upload is still in flight and quit prematurely).
+let isQuitting = false;
 
 /**
  * Internal SDK context
@@ -79,9 +82,16 @@ function setupBeforeQuitHandler(): void {
   const onBeforeQuit = monitor((event: Electron.Event) => {
     event.preventDefault();
 
-    // Guard against re-entrancy: a second quit (e.g. user hits Cmd+Q again or the
-    // OS sends another quit signal) must not race the fallback timer, and the
-    // fallback firing before the flush settles must not trigger a duplicate quit.
+    // A second quit (user hits Cmd+Q again, or the OS sends another quit signal) while the first
+    // flush is still running must not start a second flush: that flush would find the upload cycle
+    // already in progress, return immediately, and quit before the first upload settles.
+    if (isQuitting) {
+      return;
+    }
+    isQuitting = true;
+
+    // Guard against racing the fallback timer with the flush: whichever settles first quits,
+    // and the loser must not trigger a duplicate quit.
     let done = false;
     const doQuit = () => {
       if (!done) {

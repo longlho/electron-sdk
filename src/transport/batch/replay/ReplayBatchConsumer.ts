@@ -1,5 +1,7 @@
 import { generateUUID } from '@datadog/browser-core';
+import { display } from '../../../tools/display';
 import { BatchConsumer } from '../BatchConsumer';
+import { appendIntakeParams } from '../../utils';
 
 declare const __SDK_VERSION__: string;
 
@@ -19,11 +21,27 @@ export class ReplayBatchConsumer extends BatchConsumer {
       return null;
     }
 
-    const metadataWithSizes = JSON.parse(lines[0]) as Record<string, unknown>;
-    const compressed = Buffer.from(lines[1], 'base64');
+    // A crash mid-write can leave a recovered `.log` with a truncated metadata line. An unguarded
+    // JSON.parse would throw here — before the base class reaches its fetch error handling or deletes
+    // the file — aborting the whole upload cycle and blocking every later replay batch on retry.
+    // Validate and drop instead, matching ProfileBatchConsumer.
+    let metadataWithSizes: Record<string, unknown>;
+    try {
+      metadataWithSizes = JSON.parse(lines[0]) as Record<string, unknown>;
+    } catch {
+      display.warn('Dropping malformed replay batch: metadata line is not valid JSON');
+      return null;
+    }
 
-    const sessionId = (metadataWithSizes.session as { id: string }).id;
-    const start = metadataWithSizes.start as number;
+    const session = metadataWithSizes.session as { id?: unknown } | undefined;
+    const sessionId = session?.id;
+    const start = metadataWithSizes.start;
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || typeof start !== 'number') {
+      display.warn('Dropping malformed replay batch: missing session.id or start');
+      return null;
+    }
+
+    const compressed = Buffer.from(lines[1], 'base64');
 
     const formData = new FormData();
     formData.append('segment', new Blob([compressed], { type: 'application/octet-stream' }), `${sessionId}-${start}`);
@@ -33,7 +51,11 @@ export class ReplayBatchConsumer extends BatchConsumer {
     // query params, not headers. ddsource and dd-evp-origin are 'browser' because
     // the records originate from @datadog/browser-rum in the renderer — the backend
     // uses these values to determine how to parse and stitch the compressed segments.
-    const params = new URLSearchParams({
+    //
+    // intakeUrl already carries the standard track query (`?ddsource=electron`, or a proxy
+    // `?ddforward=...`), so merge these params in — overwriting ddsource — rather than appending
+    // a second `?`, which would otherwise corrupt ddsource and proxy forwarding.
+    const url = appendIntakeParams(this.intakeUrl, {
       ddsource: 'browser',
       ddtags: `sdk_version:${__SDK_VERSION__}`,
       'dd-api-key': this.clientToken,
@@ -42,7 +64,7 @@ export class ReplayBatchConsumer extends BatchConsumer {
       'dd-request-id': generateUUID(),
     });
 
-    return new Request(`${this.intakeUrl}?${params.toString()}`, {
+    return new Request(url, {
       method: 'POST',
       headers: { 'User-Agent': this.userAgent! },
       body: formData,

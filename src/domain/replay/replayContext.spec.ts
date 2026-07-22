@@ -57,7 +57,7 @@ describe('registerReplayContext', () => {
       expect(result).toBeUndefined();
     });
 
-    it('returns SKIPPED when no replay stats exist for the view', () => {
+    it('clears has_replay when no replay stats exist for the view', () => {
       const hooks = createFormatHooks();
       registerReplayContext(hooks, () => undefined);
 
@@ -68,7 +68,9 @@ describe('registerReplayContext', () => {
         rendererViewId: 'view-no-stats',
       });
 
-      expect(result).toBeUndefined();
+      // The main process never sent a segment for this view, so the RUM view must not
+      // claim a replay exists even if the renderer stamped has_replay itself.
+      expect((result as Record<string, unknown>)?.['session']).toMatchObject({ has_replay: false });
     });
   });
 

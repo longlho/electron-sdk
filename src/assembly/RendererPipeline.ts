@@ -3,13 +3,7 @@ import { type TimeStamp } from '@datadog/js-core/time';
 import { combine, isIndexableObject, type RecursivePartial } from '@datadog/js-core/util';
 import { DISCARDED } from '@datadog/js-core/assembly';
 import { EventKind, EventSource, EventTrack, LifecycleKind, EventFormat } from '../event';
-import type {
-  EventManager,
-  ServerRumEvent,
-  BrowserProfileEvent,
-  BrowserProfilerTrace,
-  RawReplayEvent,
-} from '../event';
+import type { EventManager, ServerRumEvent, BrowserProfileEvent, BrowserProfilerTrace, RawReplayEvent } from '../event';
 import { isEmptyObject } from '@datadog/browser-core';
 import { monitor, addError as addTelemetryError } from '../domain/telemetry';
 import { BRIDGE_CHANNEL, setBridgeConfig, type BridgeOptions } from '../common';
@@ -113,6 +107,18 @@ export class RendererPipeline {
         // later at segment serialization/upload with no useful context.
         if (!isIndexableObject(bridgeEvent.event)) {
           addTelemetryError(new Error('Received malformed replay record'));
+          break;
+        }
+        // A bridge/SDK version mismatch can send an object that lacks a numeric timestamp/type.
+        // Segment.addRecord derives start/end from timestamp via Math.min/Math.max, so a missing
+        // or non-finite value turns segment metadata into NaN (serialized as null) and makes the
+        // uploaded segment unusable. Reject at the boundary instead, matching the profile validation.
+        if (
+          typeof bridgeEvent.event.timestamp !== 'number' ||
+          !Number.isFinite(bridgeEvent.event.timestamp) ||
+          typeof bridgeEvent.event.type !== 'number'
+        ) {
+          addTelemetryError(new Error('Received replay record with invalid timestamp or type'));
           break;
         }
         this.eventManager.notify({

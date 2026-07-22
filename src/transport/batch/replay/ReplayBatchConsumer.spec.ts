@@ -13,9 +13,11 @@ vi.stubGlobal('__SDK_VERSION__', '0.0.0-test');
 const fsMocks = mockFs();
 const TEST_USER_AGENT = 'TestApp/1.0.0 Electron/0';
 
+// Mirrors computeIntakeUrlForTrack output: the standard track query is already present, so the
+// consumer must merge its params in rather than appending a second `?`.
 const config = {
   trackPath: '/mock/replay',
-  intakeUrl: 'https://browser-intake-datadoghq.com/api/v2/replay',
+  intakeUrl: 'https://browser-intake-datadoghq.com/api/v2/replay?ddsource=electron',
   clientToken: 'test-client-token',
 };
 
@@ -49,11 +51,75 @@ describe('ReplayBatchConsumer — request construction', () => {
 
       const [request] = vi.mocked(fetch).mock.calls[0] as [Request];
       const url = new URL(request.url);
-      expect(url.searchParams.get('ddsource')).toBe('browser');
+      // ddsource=electron from the track query is overwritten with the browser value, not duplicated.
+      expect(url.searchParams.getAll('ddsource')).toEqual(['browser']);
       expect(url.searchParams.get('dd-api-key')).toBe(config.clientToken);
       expect(url.searchParams.get('dd-evp-origin')).toBe('browser');
       expect(url.searchParams.get('dd-request-id')).toBe('test-request-id');
       expect(url.searchParams.get('ddtags')).toContain('sdk_version:0.0.0-test');
+    });
+
+    it('does not produce a double question mark when the intake URL already has a query', async () => {
+      fsMocks.readdir.mockResolvedValue(['segment.log']);
+      fsMocks.readFile.mockResolvedValue(
+        makeFileLine(
+          { session: { id: 'sess' }, start: 0, raw_segment_size: 1, compressed_segment_size: 1 },
+          Buffer.from([0x01])
+        )
+      );
+
+      await consumer.upload();
+
+      const [request] = vi.mocked(fetch).mock.calls[0] as [Request];
+      expect(request.url.match(/\?/g)).toHaveLength(1);
+    });
+
+    it('merges params inside ddforward when the intake URL is a proxy', async () => {
+      const proxyConsumer = new ReplayBatchConsumer({
+        ...config,
+        intakeUrl: 'https://proxy.example.com/?ddforward=%2Fapi%2Fv2%2Freplay%3Fddsource%3Delectron',
+      });
+      fsMocks.readdir.mockResolvedValue(['segment.log']);
+      fsMocks.readFile.mockResolvedValue(
+        makeFileLine(
+          { session: { id: 'sess' }, start: 0, raw_segment_size: 1, compressed_segment_size: 1 },
+          Buffer.from([0x01])
+        )
+      );
+
+      await proxyConsumer.upload();
+
+      const [request] = vi.mocked(fetch).mock.calls[0] as [Request];
+      const url = new URL(request.url);
+      // Auth/metadata params must live on the forwarded path, not the proxy URL itself.
+      expect(url.searchParams.get('dd-api-key')).toBeNull();
+      const forwarded = new URL(url.searchParams.get('ddforward')!, 'https://placeholder.invalid');
+      expect(forwarded.pathname).toBe('/api/v2/replay');
+      expect(forwarded.searchParams.getAll('ddsource')).toEqual(['browser']);
+      expect(forwarded.searchParams.get('dd-api-key')).toBe(config.clientToken);
+    });
+  });
+
+  describe('malformed batch files', () => {
+    it('drops (deletes without sending) a file whose metadata line is not valid JSON', async () => {
+      fsMocks.readdir.mockResolvedValue(['corrupt.log']);
+      // Truncated metadata line followed by a base64 line — the two-line shape is intact.
+      fsMocks.readFile.mockResolvedValue(`{"session":{"id":"ses\n${Buffer.from([0x01]).toString('base64')}\n`);
+
+      await consumer.upload();
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fsMocks.unlink).toHaveBeenCalledWith('/mock/replay/corrupt.log');
+    });
+
+    it('drops a file missing session.id or start', async () => {
+      fsMocks.readdir.mockResolvedValue(['corrupt.log']);
+      fsMocks.readFile.mockResolvedValue(makeFileLine({ start: 0 }, Buffer.from([0x01])));
+
+      await consumer.upload();
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fsMocks.unlink).toHaveBeenCalledWith('/mock/replay/corrupt.log');
     });
   });
 

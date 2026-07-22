@@ -19,7 +19,14 @@ export function registerReplayContext(
 
     const stats = getViewReplayStats(rendererViewId);
     if (!stats) {
-      return SKIPPED;
+      // The main process is authoritative for replay: it does the sampling and the upload.
+      // The renderer's Browser SDK may still have stamped session.has_replay on the view event
+      // (it advertises the 'records' capability), so when we have no segment for this view —
+      // session sampled out for replay, or nothing flushed yet — explicitly clear the flag.
+      // Otherwise the uploaded RUM view claims a replay exists that Electron never sent.
+      return {
+        session: { has_replay: false },
+      };
     }
 
     return {
